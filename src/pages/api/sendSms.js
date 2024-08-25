@@ -1,3 +1,5 @@
+// pages/api/sendSms.js
+import pool from '../../../db';
 
 export default async function handler(req, res) {
   if (req.method === 'POST') {
@@ -15,6 +17,8 @@ export default async function handler(req, res) {
       if (!token) {
         return res.status(500).json({ message: 'Токен аутентификации не настроен.' });
       }
+
+      const sentAt = new Date();
 
       // Проходим по каждому номеру получателя и отправляем SMS
       for (const destination of destinationNumbers) {
@@ -36,10 +40,24 @@ export default async function handler(req, res) {
         if (!response.ok) {
           throw new Error(data.message || 'Ошибка отправки SMS');
         }
+
+        // Сохраняем отправленное сообщение в базу данных
+        try {
+          const insertQuery = `
+            INSERT INTO messages (message_id, sender_number, recipient_numbers, text, direction, sent_at)
+            VALUES ($1, $2, $3, $4, 'DIRECTION_OUTGOING', $5)
+            ON CONFLICT (message_id) DO NOTHING
+            RETURNING *;
+          `;
+          const values = [data.message_id, senderNumber, destination, text, sentAt];
+          await pool.query(insertQuery, values);
+        } catch (dbError) {
+          console.error('Ошибка при сохранении сообщения в базу данных:', dbError);
+        }
       }
 
-      // Возвращаем ответ, если все SMS были успешно отправлены
-      return res.status(200).json({ message: 'Все сообщения успешно отправлены' });
+      // Возвращаем ответ, если все SMS были успешно отправлены и сохранены
+      return res.status(200).json({ message: 'Все сообщения успешно отправлены и сохранены' });
     } catch (error) {
       // Обработка ошибок при запросе к внешнему API
       console.error('Ошибка при отправке SMS:', error);
